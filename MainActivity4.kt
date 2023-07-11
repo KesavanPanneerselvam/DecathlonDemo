@@ -60,6 +60,24 @@ class MainActivity4 : AppCompatActivity() {
     data class ReplaceableString(val from: String,val to:String)
 }
 
+private fun getUrls(logView:TextView){
+        val textView = findViewById<TextView>(R.id.html_text_view2)
+        var htmlContent = "https://google.com Click here to open https://bbc.com"
+        val pattern = """(?i)<a\s+[^>]*>[^<]*</a>|(https?|ftp)://(?:-\.)?([^\s/?.#-]+\.?)+(/\S*)?"""
+        val urlpattern: Pattern = Pattern.compile(pattern)
+        val matcher: Matcher = urlpattern.matcher(htmlContent)
+        val replaceableString = mutableListOf<ReplaceableString>()
+        while (matcher.find()) {
+            val url = matcher.group(0)
+            replaceableString.add(ReplaceableString(matcher.group(0),"<a href=\"$url\">$url</a>"))
+            logView.text = logView.text.toString() +"\n" + url
+        }
+        replaceableString.forEach {
+            htmlContent = htmlContent.replace(it.from,it.to)
+        }
+        textView.text = Html.fromHtml(htmlContent,Html.FROM_HTML_MODE_LEGACY)
+    }
+
 fun String?.value():String{
     return this ?: ""
 }
