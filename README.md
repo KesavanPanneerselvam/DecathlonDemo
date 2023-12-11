@@ -128,3 +128,8 @@ Adaptable to Varied Project Requirements:
 
 Depending on project requirements, you can choose to share as much or as little code as needed. This flexibility allows developers to tailor their approach based on specific use cases.
 Remember that the actual benefits and features of Jetpack Compose for Multiplatform may vary based on the official release and subsequent updates. Always refer to the latest documentation and resources provided by Google for the most accurate and current information.
+
+
+
+
+https://android-developers.googleblog.com/2023/10/meta-built-threads-in-only-5-months-using-jetpack-compose.html
