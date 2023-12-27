@@ -129,7 +129,19 @@ Adaptable to Varied Project Requirements:
 Depending on project requirements, you can choose to share as much or as little code as needed. This flexibility allows developers to tailor their approach based on specific use cases.
 Remember that the actual benefits and features of Jetpack Compose for Multiplatform may vary based on the official release and subsequent updates. Always refer to the latest documentation and resources provided by Google for the most accurate and current information.
 
+Hello All,
 
+Finally the moment has arrived to say goodbye, which is never easy, especially when you have been part of the Maxpro Technologies Pvt Ltd family for 2 years. It has been a fantastic journey and a great learning experience where I have enjoyed every moment and I appreciate having had the opportunity to work with each of you with whom I have interacted.
+
+Special thanks to our Managing Directors Mr.Selva & Mr.Ram and sincere thanks to all my project managers Mr. Raja & Mr. Vijay and my colleagues for their support and guidance to excel in my career. I am also very thankful to the all Team members who were always there to guide me throughout the journey. And a very Big "Thank You" to all my friends with whom I have spent wonderful moments, that would last a lifetime.
+
+Even though I will miss you all, I am looking forward to this new challenge and to start a new phase in my career. I wish you all the very best in life. I am reachable at my personal email (kesavanmailid@gmail.com) and Contact number (9578080988).
+
+
+It was a pleasure knowing each and every one of you. In case I have unintentionally hurt any one, please forgive me. Needless to say, please stay in touch.
+
+Thanks,
+Kesavan P
 
 
 https://android-developers.googleblog.com/2023/10/meta-built-threads-in-only-5-months-using-jetpack-compose.html
