@@ -1,42 +1,31 @@
-private val LINE_SEPARATOR = "\n"
-    fun initEMFCrashReport(){
-        Thread.setDefaultUncaughtExceptionHandler { thread, exception ->
-            val stackTrace = StringWriter()
-            exception.printStackTrace(PrintWriter(stackTrace))
-            val errorReport = StringBuilder()
-            errorReport.append("************ CAUSE OF ERROR ************\n\n")
-            errorReport.append(stackTrace.toString())
+interface ApiService {
 
-            errorReport.append("\n************ DEVICE INFORMATION ***********\n")
-            errorReport.append("Brand: ")
-            errorReport.append(Build.BRAND)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("Device: ")
-            errorReport.append(Build.DEVICE)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("Model: ")
-            errorReport.append(Build.MODEL)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("Id: ")
-            errorReport.append(Build.ID)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("Product: ")
-            errorReport.append(Build.PRODUCT)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("\n************ FIRMWARE ************\n")
-            errorReport.append("SDK: ")
-            errorReport.append(Build.VERSION.SDK)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("Release: ")
-            errorReport.append(Build.VERSION.RELEASE)
-            errorReport.append(LINE_SEPARATOR)
-            errorReport.append("Incremental: ")
-            errorReport.append(Build.VERSION.INCREMENTAL)
-            errorReport.append(LINE_SEPARATOR)
+    @POST("/some-api-method")
+    fun sendCrashReport(
+        @Header("Authorization") token: String,
+        @Header("Content-Type") contentType: String,
+        @Body body: RequestBody
+    ): Call<ResponseBody>
+}
 
-            Log.e("EMF Crash Report Handler",errorReport.toString())
 
-            Process.killProcess(Process.myPid())
-            System.exit(10)
-        }
+class Test{
+    val retrofit = Retrofit.Builder().build().create(ApiService::class.java)
+    fun test(){
+        val paramValues = mapOf("userId" to "00000000", "bundleId" to "--------")
+        val paramBody: RequestBody = RequestBody.create(MultipartBody.FORM,  paramValues.toString())
+        val fileBody: RequestBody = RequestBody.create(MultipartBody.FORM,  getCompressData(file))
+        val multipartBody = MultipartBody.Builder()
+            .addPart(MultipartBody.Part.createFormData("uploadedRequest", null, paramBody))
+            .addPart(MultipartBody.Part.createFormData("uploadedCrashReport", "CrashReport.txt", fileBody))
+            .build()
+        val contentType = "multipart/form-data; charset=utf-8; boundary=" + multipartBody.boundary()
+
+        val token = ""
+        retrofit.sendCrashReport("Bearer $token",contentType, multipartBody)
     }
+
+    fun getCompressData(file: File): ByteArray{
+
+    }
+}
