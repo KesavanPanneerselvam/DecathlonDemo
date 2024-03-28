@@ -63,4 +63,6 @@ val mutableString = mutableStateOf("")
             mutableString.value = "Failed "+ e.message
         }
     }
+
+adb shell 'logcat --pid=$(pidof -s com.interview.jpmcdemoapp)'
 ```
