@@ -1,5 +1,15 @@
 ```
 
+
+EMFHelper.apply {
+    logInfo("Info Message from reference app")
+    logDebug("Debug Message from reference app")
+    logWarning("Warning Message from reference app")
+    logError("Error Message from reference app")
+    logVerbose("Verbose Message from reference app")
+    logAssert("Assert Message from reference app")
+}
+
 import android.content.Context
 import android.util.Log
 import java.io.File
