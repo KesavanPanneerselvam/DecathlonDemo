@@ -1,4 +1,32 @@
 ```
+
+//Class StringExtensions
+
+fun String?.value(error: EMFError) = this ?: throw error
+
+fun String?.value() = this ?: ""
+
+//Class EMFError
+sealed class EMFError(message: String) : Exception(message){
+    data object NetworkError : EMFError(NETWORK_ERROR)
+    data object UnKnownError : EMFError(UNKNOWN_ERROR)
+    data object InvalidIdTokenError: EMFError(INVALID_ID_TOKEN)
+    data object InvalidAccessTokenError: EMFError(INVALID_ACCESS_TOKEN)
+    data object InvalidPayloadTokenError: EMFError(INVALID_PAYLOAD_TOKEN)
+    data object AuthenticationError: EMFError(AUTHENTICATION_ERROR)
+
+    private companion object{
+        const val INVALID_ID_TOKEN = "Invalid ID token error"
+        const val INVALID_ACCESS_TOKEN = "Invalid Access token error"
+        const val INVALID_PAYLOAD_TOKEN = "Invalid Payload error"
+        const val AUTHENTICATION_ERROR = "Authentication error"
+        const val NETWORK_ERROR = "Network error"
+        const val UNKNOWN_ERROR = "Unknown error"
+    }
+}
+
+/////////////////////////////////////////////////////
+
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyProtection
 import android.util.Base64
