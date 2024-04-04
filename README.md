@@ -1,97 +1,98 @@
 ```
-
-
-EMFHelper.apply {
-    logInfo("Info Message from reference app")
-    logDebug("Debug Message from reference app")
-    logWarning("Warning Message from reference app")
-    logError("Error Message from reference app")
-    logVerbose("Verbose Message from reference app")
-    logAssert("Assert Message from reference app")
-}
-
-import android.content.Context
+import android.security.keystore.KeyProperties
+import android.security.keystore.KeyProtection
+import android.util.Base64
 import android.util.Log
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.nio.charset.StandardCharsets
+import java.security.KeyStore
+import java.util.Calendar
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.IvParameterSpec
 
-internal object Logger {
+class EMFCryptoManager {
 
-    private const val TAG_INFO = "Info"
-    private const val TAG_DEBUG = "debug"
-    private const val TAG_ERROR = "error"
-    private const val TAG_WARNING = "warning"
-    private const val TAG_VERBOSE = "verbose"
-    private const val TAG_ASSERT = "assert"
+     fun generateSecretKey() {
+         val ks = KeyStore.getInstance("AndroidKeyStore").apply {
+             load(null)
+         }
 
-    private val timeFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
-    private lateinit var packageName: String
+         val keyGen = KeyGenerator.getInstance("AES")
+         keyGen.init(256)
 
-    private lateinit var logFile: File
-    fun init(context: Context){
-        logFile = File(context.cacheDir, "EMFLog.txt")
-        packageName = context.packageName
-        if(!logFile.exists()){
-            logFile.createNewFile()
-        }
-    }
+         val secretKey: SecretKey = keyGen.generateKey()
 
-    fun i(msg: String){
-        writeLog(TAG_INFO, msg)
-    }
+         val start: Calendar = Calendar.getInstance()
+         val end: Calendar = Calendar.getInstance()
+         end.add(Calendar.YEAR, 2)
 
-    fun d(msg: String){
-        writeLog(TAG_DEBUG, msg)
-    }
+         val entry = KeyStore.SecretKeyEntry(secretKey)
+         val protectionParameter =
+             KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                 .setKeyValidityStart(start.time)
+                 .setKeyValidityEnd(end.time)
+                 .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                 .build()
 
-    fun v(msg: String){
-        writeLog(TAG_VERBOSE, msg)
-    }
+         ks.setEntry(ALIAS, entry, protectionParameter)
+     }
 
-    fun w(msg: String){
-        writeLog(TAG_WARNING, msg)
-    }
+     fun encrypt(plainText: String): String? {
+         val ks = KeyStore.getInstance("AndroidKeyStore").apply {
+             load(null)
+         }
 
-    fun a(msg: String){
-        writeLog(TAG_ASSERT, msg)
-    }
+         val secretKey = ks.getKey(ALIAS, null)
 
-    fun e(msg: String){
-        writeLog(TAG_ERROR, msg)
-    }
+         return try {
+             val cipher = Cipher.getInstance("AES/CBC/PKCS7PADDING")
+             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
 
-    private fun writeLog(tag: String,message: String){
-        val logText = "$tag $message"
-        Log.v("EMFLogger",logText)
-        logFile.appendText("${timeFormatter.format(Date())} $packageName $logText\n")
+             val cipherText = Base64.encodeToString(cipher.doFinal(plainText.toByteArray()), Base64.DEFAULT)
+             val iv = Base64.encodeToString(cipher.iv, Base64.DEFAULT)
+
+             "${cipherText}.$iv"
+         } catch (e: Exception) {
+             Log.e(TAG, "encrypt: error msg = ${e.message}")
+             null
+         }
+     }
+
+     fun decrypt(cipherText: String): String? {
+         val ks = KeyStore.getInstance("AndroidKeyStore").apply {
+             load(null)
+         }
+
+         val secretKey = ks.getKey(ALIAS, null)
+
+         val array = cipherText.split(".")
+         val cipherData = Base64.decode(array[0], Base64.DEFAULT)
+         val iv = Base64.decode(array[1], Base64.DEFAULT)
+
+         return try {
+             val cipher = Cipher.getInstance(TRANSFORMATION)
+             val spec = IvParameterSpec(iv)
+
+             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+
+             val clearText = cipher.doFinal(cipherData)
+
+             String(clearText, 0, clearText.size, StandardCharsets.UTF_8)
+         } catch (e: Exception) {
+             Log.e(TAG, "decrypt: error msg = ${e.message}")
+             null
+         }
+     }
+
+    companion object {
+        private const val TAG = "CRYPTO-MANAGER-TAG"
+        private const val ALIAS = "EMF_RSA_KEY"
+        private const val ALGORITHM = KeyProperties.KEY_ALGORITHM_AES
+        private const val BLOCK_MODE = KeyProperties.BLOCK_MODE_CBC
+        private const val PADDING = KeyProperties.ENCRYPTION_PADDING_PKCS7
+        private const val TRANSFORMATION = "$ALGORITHM/$BLOCK_MODE/$PADDING"
     }
 }
-
-  fun initEMF(application: Application){
-      Logger.init(application)
-
-  fun logInfo(msg: String){
-      Logger.i(msg)
-  }
-
-  fun logDebug(msg: String){
-      Logger.d(msg)
-  }
-
-  fun logVerbose(msg: String){
-      Logger.v(msg)
-  }
-
-  fun logWarning(msg: String){
-      Logger.v(msg)
-  }
-
-  fun logAssert(msg: String){
-      Logger.a(msg)
-  }
-
-  fun logError(msg: String){
-      Logger.e(msg)
-  }
 ```
