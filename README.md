@@ -1,126 +1,79 @@
 ```
 
-//Class StringExtensions
-
-fun String?.value(error: EMFError) = this ?: throw error
-
-fun String?.value() = this ?: ""
-
-//Class EMFError
-sealed class EMFError(message: String) : Exception(message){
-    data object NetworkError : EMFError(NETWORK_ERROR)
-    data object UnKnownError : EMFError(UNKNOWN_ERROR)
-    data object InvalidIdTokenError: EMFError(INVALID_ID_TOKEN)
-    data object InvalidAccessTokenError: EMFError(INVALID_ACCESS_TOKEN)
-    data object InvalidPayloadTokenError: EMFError(INVALID_PAYLOAD_TOKEN)
-    data object AuthenticationError: EMFError(AUTHENTICATION_ERROR)
-
-    private companion object{
-        const val INVALID_ID_TOKEN = "Invalid ID token error"
-        const val INVALID_ACCESS_TOKEN = "Invalid Access token error"
-        const val INVALID_PAYLOAD_TOKEN = "Invalid Payload error"
-        const val AUTHENTICATION_ERROR = "Authentication error"
-        const val NETWORK_ERROR = "Network error"
-        const val UNKNOWN_ERROR = "Unknown error"
-    }
-}
-
-/////////////////////////////////////////////////////
-
-import android.security.keystore.KeyProperties
-import android.security.keystore.KeyProtection
-import android.util.Base64
-import android.util.Log
-import java.nio.charset.StandardCharsets
+import java.io.InputStream
+import java.io.OutputStream
+import java.security.Key
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.KeyPairGeneratorSpi
 import java.security.KeyStore
-import java.util.Calendar
-import javax.crypto.Cipher
+import java.security.KeyStoreSpi
+import java.security.Provider
+import java.security.PublicKey
+import java.security.SecureRandom
+import java.security.Security
+import java.security.cert.Certificate
+import java.security.spec.AlgorithmParameterSpec
+import java.util.Date
+import java.util.Enumeration
 import javax.crypto.KeyGenerator
+import javax.crypto.KeyGeneratorSpi
 import javax.crypto.SecretKey
-import javax.crypto.spec.IvParameterSpec
 
-class EMFCryptoManager {
+object FakeAndroidKeyStore {
 
-     fun generateSecretKey() {
-         val ks = KeyStore.getInstance("AndroidKeyStore").apply {
-             load(null)
-         }
+    val setup by lazy {
+        Security.addProvider(object : Provider("AndroidKeyStore", 1.0, "") {
+            init {
+                put("KeyStore.AndroidKeyStore", FakeKeyStore::class.java.name)
+                put("KeyPairGenerator.RSA", FakeKeyPairGeneratorRSA::class.java.name)
+                put("KeyGenerator.RSA", FakeAesKeyGenerator::class.java.name)
+            }
+        })
+    }
 
-         val keyGen = KeyGenerator.getInstance("AES")
-         keyGen.init(256)
+    @Suppress("unused")
+    class FakeKeyStore : KeyStoreSpi() {
+        private val wrapped = KeyStore.getInstance(KeyStore.getDefaultType())
 
-         val secretKey: SecretKey = keyGen.generateKey()
+        override fun engineIsKeyEntry(alias: String?): Boolean = wrapped.isKeyEntry(alias)
+        override fun engineIsCertificateEntry(alias: String?): Boolean = wrapped.isCertificateEntry(alias)
+        override fun engineGetCertificate(alias: String?): Certificate = wrapped.getCertificate(alias)
+        override fun engineGetCreationDate(alias: String?): Date = wrapped.getCreationDate(alias)
+        override fun engineDeleteEntry(alias: String?) = wrapped.deleteEntry(alias)
+        override fun engineSetKeyEntry(alias: String?, key: Key?, password: CharArray?, chain: Array<out Certificate>?) =
+            wrapped.setKeyEntry(alias, key, password, chain)
 
-         val start: Calendar = Calendar.getInstance()
-         val end: Calendar = Calendar.getInstance()
-         end.add(Calendar.YEAR, 2)
+        override fun engineSetKeyEntry(alias: String?, key: ByteArray?, chain: Array<out Certificate>?) = wrapped.setKeyEntry(alias, key, chain)
+        override fun engineStore(stream: OutputStream?, password: CharArray?) = wrapped.store(stream, password)
+        override fun engineSize(): Int = wrapped.size()
+        override fun engineAliases(): Enumeration<String> = wrapped.aliases()
+        override fun engineContainsAlias(alias: String?): Boolean = wrapped.containsAlias(alias)
+        override fun engineLoad(stream: InputStream?, password: CharArray?) = wrapped.load(stream, password)
+        override fun engineGetCertificateChain(alias: String?): Array<Certificate> = wrapped.getCertificateChain(alias)
+        override fun engineSetCertificateEntry(alias: String?, cert: Certificate?) = wrapped.setCertificateEntry(alias, cert)
+        override fun engineGetCertificateAlias(cert: Certificate?): String = wrapped.getCertificateAlias(cert)
+        override fun engineGetKey(alias: String?, password: CharArray?): Key = wrapped.getKey(alias, password)
+    }
 
-         val entry = KeyStore.SecretKeyEntry(secretKey)
-         val protectionParameter =
-             KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                 .setKeyValidityStart(start.time)
-                 .setKeyValidityEnd(end.time)
-                 .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                 .build()
+    class FakeKeyPairGeneratorRSA : KeyPairGeneratorSpi(){
+        private val wrapped = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore")
 
-         ks.setEntry(ALIAS, entry, protectionParameter)
-     }
+        override fun initialize(p0: Int, p1: SecureRandom?)  = Unit
 
-     fun encrypt(plainText: String): String? {
-         val ks = KeyStore.getInstance("AndroidKeyStore").apply {
-             load(null)
-         }
+        override fun generateKeyPair(): KeyPair = wrapped.generateKeyPair()
 
-         val secretKey = ks.getKey(ALIAS, null)
+    }
 
-         return try {
-             val cipher = Cipher.getInstance("AES/CBC/PKCS7PADDING")
-             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+    @Suppress("unused")
+    class FakeAesKeyGenerator : KeyGeneratorSpi() {
+        //private val wrapped2 = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore")
+        private val wrapped = KeyGenerator.getInstance("RSA", "AndroidKeyStore")
 
-             val cipherText = Base64.encodeToString(cipher.doFinal(plainText.toByteArray()), Base64.DEFAULT)
-             val iv = Base64.encodeToString(cipher.iv, Base64.DEFAULT)
-
-             "${cipherText}.$iv"
-         } catch (e: Exception) {
-             Log.e(TAG, "encrypt: error msg = ${e.message}")
-             null
-         }
-     }
-
-     fun decrypt(cipherText: String): String? {
-         val ks = KeyStore.getInstance("AndroidKeyStore").apply {
-             load(null)
-         }
-
-         val secretKey = ks.getKey(ALIAS, null)
-
-         val array = cipherText.split(".")
-         val cipherData = Base64.decode(array[0], Base64.DEFAULT)
-         val iv = Base64.decode(array[1], Base64.DEFAULT)
-
-         return try {
-             val cipher = Cipher.getInstance(TRANSFORMATION)
-             val spec = IvParameterSpec(iv)
-
-             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
-
-             val clearText = cipher.doFinal(cipherData)
-
-             String(clearText, 0, clearText.size, StandardCharsets.UTF_8)
-         } catch (e: Exception) {
-             Log.e(TAG, "decrypt: error msg = ${e.message}")
-             null
-         }
-     }
-
-    companion object {
-        private const val TAG = "CRYPTO-MANAGER-TAG"
-        private const val ALIAS = "EMF_RSA_KEY"
-        private const val ALGORITHM = KeyProperties.KEY_ALGORITHM_AES
-        private const val BLOCK_MODE = KeyProperties.BLOCK_MODE_CBC
-        private const val PADDING = KeyProperties.ENCRYPTION_PADDING_PKCS7
-        private const val TRANSFORMATION = "$ALGORITHM/$BLOCK_MODE/$PADDING"
+        override fun engineInit(random: SecureRandom?) = Unit
+        override fun engineInit(params: AlgorithmParameterSpec?, random: SecureRandom?) = Unit
+        override fun engineInit(keysize: Int, random: SecureRandom?) = Unit
+        override fun engineGenerateKey(): SecretKey = wrapped.generateKey()
     }
 }
 ```
