@@ -1,261 +1,242 @@
 ```
-import java.security.KeyPair
-import java.security.KeyPairGenerator
-import java.security.KeyPairGeneratorSpi
-import java.security.Provider
-import java.security.SecureRandom
-import java.security.Security
 
-internal class FakeAndroidKeyStoreProvider : Provider(
-    "AndroidKeyStore",
-    1.0,
-    "Fake AndroidKeyStore provider"
-) {
+import android.security.keystore.KeyProperties
+import android.security.keystore.KeyProtection
+import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyStore
+import java.security.KeyStore.TrustedCertificateEntry
+import java.security.PublicKey
+import java.security.SecureRandom
+import java.security.cert.Certificate
+import java.util.Calendar
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+
+internal class DataProtectionHelper(keyGenParameterSpec: EMFKeyGenParameter) {
+    private var symmetricKey: SecretKey
+    private var iv: IvParameterSpec
+    private var asymmetricKeyPair: KeyPair
 
     init {
-        put(
-            "KeyStore.AndroidKeyStore",
-            FakeKeyStore::class.java.name
-        )
-        put(
-            "KeyGenerator.RSA",
-            FakeKeyGenerator::class.java.name
-        )
-        put(
-            "KeyPairGenerator.RSA",
-            FakeKeyPairGeneratorRSA::class.java.name
-        )
+        asymmetricKeyPair = keyGenParameterSpec.createAsymmetricKeyPair()
+        iv = generateIv()
+        symmetricKey = getSecretKey()
+        println("symmetricKey format: " + symmetricKey.format)
+        println("symmetricKey algorithm: " + symmetricKey.algorithm)
+        println("symmetricKey isDestroyed: " + symmetricKey.isDestroyed)
     }
 
-    class FakeKeyPairGeneratorRSA : KeyPairGeneratorSpi(){
-        private val wrapped = KeyPairGenerator.getInstance("RSA")
-
-        override fun initialize(p0: Int, p1: SecureRandom?)  = Unit
-
-        override fun generateKeyPair(): KeyPair {
-            return wrapped.generateKeyPair()
+    private fun getSecretKey(): SecretKey {
+        val keystore = KeyStore.getInstance(ANDROID_KEYSTORE).apply {
+            load(null)
+        }
+        keystore.setCertificateEntry(ENCRYPTED_KEY_ALIAS,EMFCertificate(rsaEncrypt(generateKey().encoded)))
+        val entry: KeyStore.Entry? = keystore.getAESKeyEntry()
+        return if (entry is TrustedCertificateEntry) {
+            /*val decryptedAESKey = rsaDecrypt(entry.secretKey.encoded)
+            SecretKeySpec(decryptedAESKey, 0, decryptedAESKey.size, SYMMETRIC_KEY_ALGORITHM)*/
+            val decryptedAESKey = rsaDecrypt((entry.trustedCertificate as EMFCertificate).encoded)
+            SecretKeySpec(decryptedAESKey, SYMMETRIC_KEY_ALGORITHM)
+        } else {
+            val aesSecretKey = generateKey()
+            val encryptedAESKey = rsaEncrypt(aesSecretKey.encoded)
+            /*val secretKey =
+                SecretKeySpec(encryptedAESKey, 0, encryptedAESKey.size, SYMMETRIC_KEY_ALGORITHM)*/
+            val kf = KeyFactory.getInstance("RSA")
+            keystore.setEntry(
+                ENCRYPTED_KEY_ALIAS,
+                KeyStore.SecretKeyEntry(aesSecretKey),
+                getProtectionParameter()
+            )
+            /*keystore.setKeyEntry(
+                ENCRYPTED_KEY_ALIAS,
+                kf.generatePrivate(PKCS8EncodedKeySpec(encryptedAESKey)),
+                ENCRYPTED_KEY_ALIAS.toCharArray(),
+                cer
+            )*/
+            aesSecretKey
         }
     }
 
+    /*public X509Certificate generateCertificate(KeyPair keyPair){
+        X509V3CertificateGenerator cert = new X509V3CertificateGenerator();
+        cert.setSerialNumber(BigInteger.valueOf(1));   //or generate a random number
+        cert.setSubjectDN(new X509Principal("CN=localhost"));  //see examples to add O,OU etc
+        cert.setIssuerDN(new X509Principal("CN=localhost")); //same since it is self-signed
+        cert.setPublicKey(keyPair.getPublic());
+        cert.setNotBefore(<date>);
+        cert.setNotAfter(<date>);
+        cert.setSignatureAlgorithm("SHA1WithRSAEncryption");
+        PrivateKey signingKey = keyPair.getPrivate();
+        return cert.generate(signingKey, "BC");
+    }*/
+
+    private fun KeyStore.getAESKeyEntry(): KeyStore.Entry?{
+        try {
+            val cert = this.getCertificate(ENCRYPTED_KEY_ALIAS)
+            println(cert)
+        }catch (e: Exception){
+            e.printStackTrace()
+        }
+
+        return try {
+            this.getEntry(ENCRYPTED_KEY_ALIAS, getProtectionParameter())
+        }catch (e: Exception){
+            null
+        }
+    }
+
+    private fun getProtectionParameter(): KeyStore.ProtectionParameter {
+        val start: Calendar = Calendar.getInstance()
+        val end: Calendar = Calendar.getInstance()
+        end.add(Calendar.YEAR, 2)
+        return KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            .setKeyValidityStart(start.time)
+            .setKeyValidityEnd(end.time)
+            .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+            .build()
+    }
+
+    private fun generateKey(): SecretKey =
+        KeyGenerator.getInstance(SYMMETRIC_KEY_ALGORITHM).apply {
+            init(AES_KEY_SIZE)
+        }.generateKey()
+
+    private fun generateIv(): IvParameterSpec {
+        val iv = ByteArray(IV_SIZE)
+        SecureRandom().nextBytes(iv)
+        return IvParameterSpec(iv)
+    }
+
+    fun encrypt(data: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance(SYMMETRIC_KEY_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, symmetricKey, iv)
+        return cipher.doFinal(data)
+    }
+
+    fun decrypt(data: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance(SYMMETRIC_KEY_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, symmetricKey, iv)
+        return cipher.doFinal(data)
+    }
+
+    private fun rsaEncrypt(data: ByteArray): ByteArray =
+        Cipher.getInstance(ASYMMETRIC_KEY_TRANSFORMATION).apply {
+            init(Cipher.ENCRYPT_MODE, asymmetricKeyPair.public)
+        }.doFinal(data)
+
+    private fun rsaDecrypt(data: ByteArray): ByteArray =
+        Cipher.getInstance(ASYMMETRIC_KEY_TRANSFORMATION).apply {
+            init(Cipher.DECRYPT_MODE, asymmetricKeyPair.private)
+        }.doFinal(data)
 
     companion object {
-        fun setup() {
-            Security.addProvider(FakeAndroidKeyStoreProvider())
-        }
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val ENCRYPTED_KEY_ALIAS = "EMF_KEY_1234566"
+        const val KEY_ALIAS = "EMF_KEY"
+        const val AES_KEY_SIZE = 256
+        const val IV_SIZE = 16
+        const val SYMMETRIC_KEY_ALGORITHM = KeyProperties.KEY_ALGORITHM_AES
+        const val SYMMETRIC_KEY_BLOCK_MODE = KeyProperties.BLOCK_MODE_CBC
+        const val SYMMETRIC_KEY_PADDING = "PKCS5PADDING"
+        const val SYMMETRIC_KEY_TRANSFORMATION =
+            "$SYMMETRIC_KEY_ALGORITHM/$SYMMETRIC_KEY_BLOCK_MODE/$SYMMETRIC_KEY_PADDING"
+        const val RSA_KEY_SIZE = 2048
+        const val ASYMMETRIC_KEY_ALGORITHM = KeyProperties.KEY_ALGORITHM_RSA
+        const val ASYMMETRIC_KEY_BLOCK_MODE = KeyProperties.BLOCK_MODE_ECB
+        const val ASYMMETRIC_KEY_PADDING = KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1
+        const val ASYMMETRIC_KEY_DIGEST = KeyProperties.DIGEST_SHA256
+        const val ASYMMETRIC_KEY_TRANSFORMATION =
+            "$ASYMMETRIC_KEY_ALGORITHM/$ASYMMETRIC_KEY_BLOCK_MODE/$ASYMMETRIC_KEY_PADDING"
     }
 }
 
+internal class EMFPublicKey(private val data: ByteArray): PublicKey{
+    override fun getAlgorithm(): String = "RSA"
 
-import java.io.InputStream
-import java.io.OutputStream
-import java.security.Key
-import java.security.KeyStore
-import java.security.KeyStoreSpi
-import java.security.PrivateKey
-import java.security.cert.Certificate
-import java.util.Collections
-import java.util.Date
-import java.util.Enumeration
-import javax.crypto.SecretKey
+    override fun getFormat(): String = "RAW"
 
-internal class FakeKeyStore : KeyStoreSpi() {
-    companion object {
-        private val keys = mutableMapOf<String, Key>()
-        private val certs = mutableMapOf<String, Certificate>()
-    }
+    override fun getEncoded(): ByteArray = data
 
-    override fun engineIsKeyEntry(alias: String?): Boolean {
-        alias ?: throw NullPointerException("alias == null")
-
-        return keys.containsKey(alias)
-    }
-
-    override fun engineIsCertificateEntry(alias: String?): Boolean {
-        alias ?: throw NullPointerException("alias == null")
-
-        return certs.containsKey(alias)
-    }
-
-    override fun engineGetCertificate(alias: String?): Certificate {
-        alias ?: throw NullPointerException("alias == null")
-
-        return certs.getValue(alias)
-    }
-
-    override fun engineGetCreationDate(alias: String?): Date {
-        alias ?: throw NullPointerException("alias == null")
-
-        return Date()
-    }
-
-    override fun engineDeleteEntry(alias: String?) {
-        alias ?: throw NullPointerException("alias == null")
-
-        keys.remove(alias)
-        certs.remove(alias)
-    }
-
-    override fun engineSetKeyEntry(
-        alias: String?,
-        key: Key?,
-        password: CharArray?,
-        chain: Array<out Certificate>?
-    ) {
-        alias ?: throw NullPointerException("alias == null")
-        key ?: throw NullPointerException("key == null")
-
-        keys[alias] = key
-    }
-
-    override fun engineGetEntry(
-        alias: String?,
-        protParam: KeyStore.ProtectionParameter?
-    ): KeyStore.Entry {
-        alias ?: throw NullPointerException("alias == null")
-
-        val key = keys[alias]
-        if (key != null) {
-            return when (key) {
-                is SecretKey -> KeyStore.SecretKeyEntry(key)
-                is PrivateKey -> KeyStore.PrivateKeyEntry(key, null)
-                else -> throw UnsupportedOperationException("Unsupported key type: $key")
-            }
-        }
-        val cert = certs[alias]
-        if (cert != null) {
-            return KeyStore.TrustedCertificateEntry(cert)
-        }
-        throw UnsupportedOperationException("No alias found in keys or certs, alias=$alias")
-    }
-
-    override fun engineSetKeyEntry(
-        alias: String?,
-        key: ByteArray?,
-        chain: Array<out Certificate>?
-    ) {
-        throw UnsupportedOperationException(
-            "Operation not supported because key encoding is unknown"
-        )
-    }
-
-    override fun engineStore(stream: OutputStream?, password: CharArray?) {
-        throw UnsupportedOperationException("Can not serialize AndroidKeyStore to OutputStream")
-    }
-
-    override fun engineSize(): Int {
-        val uniqueAlias = mutableSetOf<String>().apply {
-            addAll(keys.keys)
-            addAll(certs.keys)
-        }
-        return uniqueAlias.size
-    }
-
-    override fun engineAliases(): Enumeration<String> {
-        val uniqueAlias = mutableSetOf<String>().apply {
-            addAll(keys.keys)
-            addAll(certs.keys)
-        }
-        return Collections.enumeration(uniqueAlias)
-    }
-
-    override fun engineContainsAlias(alias: String?): Boolean {
-        alias ?: throw NullPointerException("alias == null")
-
-        return keys.containsKey(alias) || certs.containsKey(alias)
-    }
-
-    override fun engineLoad(stream: InputStream?, password: CharArray?) {
-        if (stream != null) {
-            throw IllegalArgumentException("InputStream not supported")
-        }
-        if (password != null) {
-            throw IllegalArgumentException("password not supported")
-        }
-
-        // Do nothing in this fake key store.
-    }
-
-    override fun engineGetCertificateChain(alias: String?): Array<Certificate> {
-        alias ?: throw NullPointerException("alias == null")
-
-        val cert = certs[alias] ?: return arrayOf()
-        return arrayOf(cert)
-    }
-
-    override fun engineSetCertificateEntry(alias: String?, cert: Certificate?) {
-        alias ?: throw NullPointerException("alias == null")
-        cert ?: throw NullPointerException("cert == null")
-
-        certs[alias] = cert
-    }
-
-    override fun engineGetCertificateAlias(cert: Certificate?): String? {
-        cert ?: throw NullPointerException("cert == null")
-
-        for (entry in certs.entries) {
-            if (entry.value == cert) {
-                return entry.key
-            }
-        }
-        return null
-    }
-
-    override fun engineGetKey(alias: String?, password: CharArray?): Key? {
-        alias ?: throw NullPointerException("alias == null")
-
-        return keys[alias]
-    }
 }
 
+internal class EMFCertificate(private val data: ByteArray, type: String = "EMF"): Certificate(type) {
+    override fun toString(): String = data.toString()
 
+    override fun getEncoded(): ByteArray = data
 
+    override fun verify(p0: PublicKey?) = Unit
+
+    override fun verify(p0: PublicKey?, p1: String?) = Unit
+
+    override fun getPublicKey(): PublicKey = EMFPublicKey(data)
+
+}
+
+-------------------------------------------------
+
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import java.security.InvalidAlgorithmParameterException
+import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.KeyStore
-import java.security.SecureRandom
+import java.security.PrivateKey
 import java.security.spec.AlgorithmParameterSpec
-import javax.crypto.KeyGenerator
-import javax.crypto.KeyGeneratorSpi
-import javax.crypto.SecretKey
 
-internal class FakeKeyGenerator : KeyGeneratorSpi() {
-    private val wrapped = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA)
-    private var keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    private var spec: KeyGenParameterSpec? = null
+class EMFKeyGenParameter {
 
-    override fun engineInit(random: SecureRandom) {
-        throw UnsupportedOperationException(
-            "Cannot initialize without a ${KeyGenParameterSpec::class.java.name} parameter"
-        )
-    }
-
-    override fun engineInit(params: AlgorithmParameterSpec?, random: SecureRandom) {
-        if (params == null || params !is KeyGenParameterSpec) {
-            throw InvalidAlgorithmParameterException(
-                "Cannot initialize without a ${KeyGenParameterSpec::class.java.name} parameter"
-            )
+    fun createAsymmetricKeyPair(): KeyPair {
+        val keyPairGen = KeyPairGenerator.getInstance(
+            DataProtectionHelper.ASYMMETRIC_KEY_ALGORITHM,
+            DataProtectionHelper.ANDROID_KEYSTORE
+        ).apply {
+            initialize(getKeyGenParameterSpec())
         }
-        spec = params
+        val keystore = KeyStore.getInstance(DataProtectionHelper.ANDROID_KEYSTORE).apply {
+            load(null)
+        }
+        var privateKey = keystore.getKey(DataProtectionHelper.KEY_ALIAS, null) as PrivateKey?
+        if(privateKey == null){
+            keyPairGen.generateKeyPair()
+            privateKey = keystore.getKey(DataProtectionHelper.KEY_ALIAS, null) as PrivateKey?
+        }
+        val publicKey = keystore.getCertificate(DataProtectionHelper.KEY_ALIAS).publicKey
+        return KeyPair(publicKey, privateKey)
     }
 
-    override fun engineInit(keysize: Int, random: SecureRandom?) {
-        throw UnsupportedOperationException(
-            "Cannot initialize without a ${KeyGenParameterSpec::class.java.name} parameter"
-        )
-    }
-
-    override fun engineGenerateKey(): SecretKey {
-        val spec = spec ?: throw IllegalStateException("Not initialized")
-
-        val secretKey = wrapped.generateKey()
-        keyStore.setKeyEntry(
-            spec.keystoreAlias,
-            secretKey,
-            null,
-            null
-        )
-        return secretKey
-    }
+    fun getKeyGenParameterSpec(): AlgorithmParameterSpec = KeyGenParameterSpec.Builder(
+            DataProtectionHelper.KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        ).run {
+            setBlockModes(DataProtectionHelper.ASYMMETRIC_KEY_BLOCK_MODE)
+            setEncryptionPaddings(DataProtectionHelper.ASYMMETRIC_KEY_PADDING)
+            setDigests(DataProtectionHelper.ASYMMETRIC_KEY_DIGEST)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                //setIsStrongBoxBacked(true)
+            }
+            //Todo:: After successfully login
+            //setUserAuthenticationRequired(true)
+            build()
+        }
 }
+
+
+----------------------------------------------------------------
+val plainText = "I am some plain text that needs to be encrypted"
+                        val encryptedItem = EMFHelper.encrypt(plainText.toByteArray())
+                        val base64 = Base64.getEncoder().encodeToString(encryptedItem)
+                        println("Encryption Done")
+                        println("EncryptBase64: " +base64)
+                        val decryptedText = EMFHelper.decrypt(encryptedItem)
+                        println("Decryption Done")
+                        Text(text = "Plain Text: $plainText")
+                        Text(text = "Decrypted Text: ${String(decryptedText)}")
+
 ```
