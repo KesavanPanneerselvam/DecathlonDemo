@@ -1,14 +1,9 @@
 ```
-
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyProtection
-import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyStore
-import java.security.KeyStore.TrustedCertificateEntry
-import java.security.PublicKey
 import java.security.SecureRandom
-import java.security.cert.Certificate
 import java.util.Calendar
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -35,55 +30,26 @@ internal class DataProtectionHelper(keyGenParameterSpec: EMFKeyGenParameter) {
         val keystore = KeyStore.getInstance(ANDROID_KEYSTORE).apply {
             load(null)
         }
-        keystore.setCertificateEntry(ENCRYPTED_KEY_ALIAS,EMFCertificate(rsaEncrypt(generateKey().encoded)))
         val entry: KeyStore.Entry? = keystore.getAESKeyEntry()
-        return if (entry is TrustedCertificateEntry) {
+        return if (entry is KeyStore.SecretKeyEntry) {
             /*val decryptedAESKey = rsaDecrypt(entry.secretKey.encoded)
             SecretKeySpec(decryptedAESKey, 0, decryptedAESKey.size, SYMMETRIC_KEY_ALGORITHM)*/
-            val decryptedAESKey = rsaDecrypt((entry.trustedCertificate as EMFCertificate).encoded)
-            SecretKeySpec(decryptedAESKey, SYMMETRIC_KEY_ALGORITHM)
+            entry.secretKey
         } else {
             val aesSecretKey = generateKey()
-            val encryptedAESKey = rsaEncrypt(aesSecretKey.encoded)
-            /*val secretKey =
+            /*val encryptedAESKey = rsaEncrypt(aesSecretKey.encoded)
+            val secretKey =
                 SecretKeySpec(encryptedAESKey, 0, encryptedAESKey.size, SYMMETRIC_KEY_ALGORITHM)*/
-            val kf = KeyFactory.getInstance("RSA")
             keystore.setEntry(
                 ENCRYPTED_KEY_ALIAS,
                 KeyStore.SecretKeyEntry(aesSecretKey),
                 getProtectionParameter()
             )
-            /*keystore.setKeyEntry(
-                ENCRYPTED_KEY_ALIAS,
-                kf.generatePrivate(PKCS8EncodedKeySpec(encryptedAESKey)),
-                ENCRYPTED_KEY_ALIAS.toCharArray(),
-                cer
-            )*/
             aesSecretKey
         }
     }
 
-    /*public X509Certificate generateCertificate(KeyPair keyPair){
-        X509V3CertificateGenerator cert = new X509V3CertificateGenerator();
-        cert.setSerialNumber(BigInteger.valueOf(1));   //or generate a random number
-        cert.setSubjectDN(new X509Principal("CN=localhost"));  //see examples to add O,OU etc
-        cert.setIssuerDN(new X509Principal("CN=localhost")); //same since it is self-signed
-        cert.setPublicKey(keyPair.getPublic());
-        cert.setNotBefore(<date>);
-        cert.setNotAfter(<date>);
-        cert.setSignatureAlgorithm("SHA1WithRSAEncryption");
-        PrivateKey signingKey = keyPair.getPrivate();
-        return cert.generate(signingKey, "BC");
-    }*/
-
     private fun KeyStore.getAESKeyEntry(): KeyStore.Entry?{
-        try {
-            val cert = this.getCertificate(ENCRYPTED_KEY_ALIAS)
-            println(cert)
-        }catch (e: Exception){
-            e.printStackTrace()
-        }
-
         return try {
             this.getEntry(ENCRYPTED_KEY_ALIAS, getProtectionParameter())
         }catch (e: Exception){
